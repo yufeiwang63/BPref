@@ -5,10 +5,10 @@ import gym
 import os
 import random
 import math
-import dmc2gym
+# import dmc2gym
 import metaworld
 import metaworld.envs.mujoco.env_dict as _env_dict
-
+from moviepy.editor import ImageSequenceClip
 from collections import deque
 from gym.wrappers.time_limit import TimeLimit
 from rlkit.envs.wrappers import NormalizedBoxEnv
@@ -35,6 +35,15 @@ def make_env(cfg):
     assert env.action_space.high.max() <= 1
 
     return env
+
+def make_classic_control_env(cfg):
+    if "CartPole" in cfg.env:
+        from envs.cartpole import CartPoleEnv
+        env = CartPoleEnv()
+    else:
+        raise NotImplementedError
+    
+    return TimeLimit(NormalizedBoxEnv(env), env.horizon)
 
 def ppo_make_env(env_id, seed):
     """Helper function to create dm_control environment"""
@@ -67,12 +76,15 @@ def make_metaworld_env(cfg):
     else:
         env_cls = _env_dict.ALL_V1_ENVIRONMENTS[env_name]
     
-    env = env_cls()
+    env = env_cls(render_mode='rgb_array')
+    # env.camera_name = "topview"
+    # env.camera_name = "gripperPOV"
+    env.camera_name = "corner"
     
     env._freeze_rand_vec = False
     env._set_task_called = True
     env.seed(cfg.seed)
-    
+
     return TimeLimit(NormalizedBoxEnv(env), env.max_path_length)
 
 def ppo_make_metaworld_env(env_id, seed):
@@ -210,9 +222,11 @@ class SquashedNormal(pyd.transformed_distribution.TransformedDistribution):
     
 class TorchRunningMeanStd:
     def __init__(self, epsilon=1e-4, shape=(), device=None):
+        print("here")
         self.mean = torch.zeros(shape, device=device)
         self.var = torch.ones(shape, device=device)
         self.count = epsilon
+        print("here done")
 
     def update(self, x):
         with torch.no_grad():
@@ -266,3 +280,38 @@ def to_np(t):
         return np.array([])
     else:
         return t.cpu().detach().numpy()
+
+def save_numpy_as_gif(array, filename, fps=20, scale=1.0):
+    """Creates a gif given a stack of images using moviepy
+    Notes
+    -----
+    works with current Github version of moviepy (not the pip version)
+    https://github.com/Zulko/moviepy/commit/d4c9c37bc88261d8ed8b5d9b7c317d13b2cdf62e
+    Usage
+    -----
+    >>> X = randn(100, 64, 64)
+    >>> gif('test.gif', X)
+    Parameters
+    ----------
+    filename : string
+        The filename of the gif to write to
+    array : array_like
+        A numpy array that contains a sequence of images
+    fps : int
+        frames per second (default: 10)
+    scale : float
+        how much to rescale each image by (default: 1.0)
+    """
+
+    # ensure that the file has the .gif extension
+    fname, _ = os.path.splitext(filename)
+    filename = fname + '.gif'
+
+    # copy into the color dimension if the images are black and white
+    if array.ndim == 3:
+        array = array[..., np.newaxis] * np.ones(3)
+
+    # make the moviepy clip
+    clip = ImageSequenceClip(list(array), fps=fps).resize(scale)
+    clip.write_gif(filename, fps=fps)
+    return clip

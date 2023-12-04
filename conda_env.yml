@@ -2,19 +2,21 @@ name: bpref
 channels:
   - defaults
 dependencies:
-  - python=3.6
-  - pytorch=1.4.0
-  - cudatoolkit=10.1
+  - python=3.8
+  # - pytorch=1.4.0 # please manually install conda install pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit=11.3 -c pytorch
+  # - cudatoolkit=10.1
   - absl-py
   - pyparsing
   - pip
   - pip:
     - termcolor
-    - git+git://github.com/deepmind/dm_control.git@d1fe1d14fb229d3ad784e40d8c54491d30e1f08a
+    # - git+https://github.com/deepmind/dm_control.git@d1fe1d14fb229d3ad784e40d8c54491d30e1f08a # we do not use deepmind control for now
     - tb-nightly
     - imageio
     - imageio-ffmpeg
-    - git+git://github.com/facebookresearch/hydra@0.11_branch
+    - git+https://github.com/facebookresearch/hydra@0.11_branch
     - matplotlib
     - glfw==1.11.2
     - scikit-image
+    - tqdm
+    - gym

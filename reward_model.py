@@ -13,6 +13,13 @@ import time
 
 from scipy.stats import norm
 
+import asyncio
+from copilot_infer import query
+from bard_infer import bard_query_session
+from PIL import Image
+import datetime
+import pickle as pkl
+
 device = 'cuda'
 
 def gen_net(in_size=1, out_size=1, H=128, n_layers=3, activation='tanh'):
@@ -89,7 +96,12 @@ class RewardModel:
                  teacher_beta=-1, teacher_gamma=1, 
                  teacher_eps_mistake=0, 
                  teacher_eps_skip=0, 
-                 teacher_eps_equal=0):
+                 teacher_eps_equal=0,
+                 vlm_label=False,
+                prompt=None, 
+                env_name="CartPole-v1",
+                vlm="bard",
+                ):
         
         # train data is trajectories, must process to sa and s..   
         self.ds = ds
@@ -138,6 +150,12 @@ class RewardModel:
         
         self.label_margin = label_margin
         self.label_target = 1 - 2*self.label_margin
+
+        # vlm label
+        self.vlm_label = vlm_label
+        self.prompt = prompt
+        self.env_name = env_name
+        self.vlm = vlm
     
     def softXEnt_loss(self, input, target):
         logprobs = torch.nn.functional.log_softmax (input, dim = 1)
@@ -165,34 +183,50 @@ class RewardModel:
             
         self.opt = torch.optim.Adam(self.paramlst, lr = self.lr)
             
-    def add_data(self, obs, act, rew, done):
+    def add_data(self, obs, act, rew, done, img=None):
+        # import pdb; pdb.set_trace()
         sa_t = np.concatenate([obs, act], axis=-1)
         r_t = rew
         
         flat_input = sa_t.reshape(1, self.da+self.ds)
         r_t = np.array(r_t)
         flat_target = r_t.reshape(1, 1)
+        if img is not None:
+            flat_img = img.reshape(1, img.shape[0], img.shape[1], img.shape[2])
 
         init_data = len(self.inputs) == 0
         if init_data:
             self.inputs.append(flat_input)
             self.targets.append(flat_target)
+            if img is not None:
+                self.img_inputs.append(flat_img)
         elif done:
             self.inputs[-1] = np.concatenate([self.inputs[-1], flat_input])
             self.targets[-1] = np.concatenate([self.targets[-1], flat_target])
+            if img is not None:
+                self.img_inputs[-1] = np.concatenate([self.img_inputs[-1], flat_img], axis=0)
+
             # FIFO
             if len(self.inputs) > self.max_size:
                 self.inputs = self.inputs[1:]
                 self.targets = self.targets[1:]
+                if img is not None:
+                    self.img_inputs = self.img_inputs[1:]
             self.inputs.append([])
             self.targets.append([])
+            if img is not None:
+                self.img_inputs.append([])
         else:
             if len(self.inputs[-1]) == 0:
                 self.inputs[-1] = flat_input
                 self.targets[-1] = flat_target
+                if img is not None:
+                    self.img_inputs[-1] = flat_img
             else:
                 self.inputs[-1] = np.concatenate([self.inputs[-1], flat_input])
                 self.targets[-1] = np.concatenate([self.targets[-1], flat_target])
+                if img is not None:
+                    self.img_inputs[-1] = np.concatenate([self.img_inputs[-1], flat_img], axis=0)
                 
     def add_data_batch(self, obses, rewards):
         num_env = obses.shape[0]
@@ -311,40 +345,60 @@ class RewardModel:
     
     def get_queries(self, mb_size=20):
         len_traj, max_len = len(self.inputs[0]), len(self.inputs)
-        img_t_1, img_t_2 = None, None
         
         if len(self.inputs[-1]) < len_traj:
             max_len = max_len - 1
         
         # get train traj
+        # import pdb; pdb.set_trace()
         train_inputs = np.array(self.inputs[:max_len])
         train_targets = np.array(self.targets[:max_len])
+        if self.vlm_label:
+            train_images = np.array(self.img_inputs[:max_len])
    
         batch_index_2 = np.random.choice(max_len, size=mb_size, replace=True)
         sa_t_2 = train_inputs[batch_index_2] # Batch x T x dim of s&a
         r_t_2 = train_targets[batch_index_2] # Batch x T x 1
+        if self.vlm_label:
+            img_t_2 = train_images[batch_index_2] # Batch x T x *img_dim
         
         batch_index_1 = np.random.choice(max_len, size=mb_size, replace=True)
         sa_t_1 = train_inputs[batch_index_1] # Batch x T x dim of s&a
         r_t_1 = train_targets[batch_index_1] # Batch x T x 1
+        if self.vlm_label:
+            img_t_1 = train_images[batch_index_1] # Batch x T x *img_dim
                 
         sa_t_1 = sa_t_1.reshape(-1, sa_t_1.shape[-1]) # (Batch x T) x dim of s&a
         r_t_1 = r_t_1.reshape(-1, r_t_1.shape[-1]) # (Batch x T) x 1
         sa_t_2 = sa_t_2.reshape(-1, sa_t_2.shape[-1]) # (Batch x T) x dim of s&a
         r_t_2 = r_t_2.reshape(-1, r_t_2.shape[-1]) # (Batch x T) x 1
+        if self.vlm_label:
+            img_t_1 = img_t_1.reshape(-1, img_t_1.shape[2], img_t_1.shape[3], img_t_1.shape[4])
+            img_t_2 = img_t_2.reshape(-1, img_t_2.shape[2], img_t_2.shape[3], img_t_2.shape[4])
 
         # Generate time index 
-        time_index = np.array([list(range(i*len_traj,
-                                            i*len_traj+self.size_segment)) for i in range(mb_size)])
-        time_index_2 = time_index + np.random.choice(len_traj-self.size_segment, size=mb_size, replace=True).reshape(-1,1)
-        time_index_1 = time_index + np.random.choice(len_traj-self.size_segment, size=mb_size, replace=True).reshape(-1,1)
-        
+        time_index = np.array([list(range(i*len_traj, i*len_traj+self.size_segment)) for i in range(mb_size)])
+        random_idx_2 = np.random.choice(len_traj-self.size_segment, size=mb_size, replace=True).reshape(-1,1)
+        time_index_2 = time_index + random_idx_2
+        random_idx_1 = np.random.choice(len_traj-self.size_segment, size=mb_size, replace=True).reshape(-1,1)
+        time_index_1 = time_index + random_idx_1
+        if self.vlm_label:
+            image_time_index = np.array([[i*len_traj+self.size_segment - 1] for i in range(mb_size)])
+            image_time_index_2 = image_time_index + random_idx_2
+            image_time_index_1 = image_time_index + random_idx_1
+
         sa_t_1 = np.take(sa_t_1, time_index_1, axis=0) # Batch x size_seg x dim of s&a
         r_t_1 = np.take(r_t_1, time_index_1, axis=0) # Batch x size_seg x 1
         sa_t_2 = np.take(sa_t_2, time_index_2, axis=0) # Batch x size_seg x dim of s&a
         r_t_2 = np.take(r_t_2, time_index_2, axis=0) # Batch x size_seg x 1
-                
-        return sa_t_1, sa_t_2, r_t_1, r_t_2
+        if self.vlm_label:
+            img_t_1 = np.take(img_t_1, image_time_index_1, axis=0) # Batch x 1 x *img_dim
+            img_t_2 = np.take(img_t_2, image_time_index_2, axis=0) # Batch x 1 x *img_dim
+        
+        if not self.vlm_label:
+            return sa_t_1, sa_t_2, r_t_1, r_t_2
+        else:
+            return sa_t_1, sa_t_2, r_t_1, r_t_2, img_t_1, img_t_2
 
     def put_queries(self, sa_t_1, sa_t_2, labels):
         total_sample = sa_t_1.shape[0]
@@ -369,7 +423,7 @@ class RewardModel:
             np.copyto(self.buffer_label[self.buffer_index:next_index], labels)
             self.buffer_index = next_index
             
-    def get_label(self, sa_t_1, sa_t_2, r_t_1, r_t_2):
+    def get_label(self, sa_t_1, sa_t_2, r_t_1, r_t_2, img_t_1=None, img_t_2=None):
         sum_r_t_1 = np.sum(r_t_1, axis=1)
         sum_r_t_2 = np.sum(r_t_2, axis=1)
         
@@ -403,7 +457,7 @@ class RewardModel:
         rational_labels = 1*(sum_r_t_1 < sum_r_t_2)
         if self.teacher_beta > 0: # Bradley-Terry rational model
             r_hat = torch.cat([torch.Tensor(sum_r_t_1), 
-                               torch.Tensor(sum_r_t_2)], axis=-1)
+                            torch.Tensor(sum_r_t_2)], axis=-1)
             r_hat = r_hat*self.teacher_beta
             ent = F.softmax(r_hat, dim=-1)[:, 1]
             labels = torch.bernoulli(ent).int().numpy().reshape(-1, 1)
@@ -415,10 +469,131 @@ class RewardModel:
         rand_num = np.random.rand(len_labels)
         noise_index = rand_num <= self.teacher_eps_mistake
         labels[noise_index] = 1 - labels[noise_index]
- 
+
         # equally preferable
         labels[margin_index] = -1 
         
+        if self.vlm_label:
+            os.system("cd /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/test_image && rm -rf images_*")
+            ts = time.time()
+            time_string = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d-%H-%M-%S')
+
+            os.system("cd /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/test_image && mkdir images_{}".format(time_string))
+            img_t_1 = img_t_1.reshape(-1, img_t_1.shape[2], img_t_1.shape[3], img_t_1.shape[4])
+            img_t_2 = img_t_2.reshape(-1, img_t_2.shape[2], img_t_2.shape[3], img_t_2.shape[4])
+            bard_images = []
+            combined_images_list = []
+            for idx, (img1, img2) in enumerate(zip(img_t_1, img_t_2)):
+                combined_image = np.concatenate([img1, img2], axis=1)
+                combined_images_list.append(combined_image)
+                combined_image = Image.fromarray(combined_image)
+                combined_image.save("/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/test_image/images_{}/{:06}.png".format(time_string, idx))
+                bard_images.append(open("/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/test_image/images_{}/{:06}.png".format(time_string, idx), "rb").read())
+
+            if self.vlm == 'copilot':
+                os.system("cd /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/test_image/ && git add . && git commit -m 'add image' && git push")
+                time.sleep(10)
+                
+                # query
+                batch_size = 5
+                num_batch = int(np.ceil(len(img_t_1)/batch_size))
+                vlm_labels = []
+                success_idxes = []
+                list_of_attachments = []
+                for idx in range(num_batch):
+                    print("querying vlm {}/{}".format(idx, num_batch))
+                    max_idx = min((idx+1)*batch_size, len(img_t_1))
+                    images_names = ["images_{}/{:06}.png".format(time_string, idx) for idx in range(idx*batch_size, max_idx)]
+                    attachments = ["https://github.com/yufeiwang63/test_image/blob/main/{}?raw=true".format(image_name) for image_name in images_names]
+                    list_of_attachments.append(attachments)            
+                    # success = False
+                    # max_retry = 5
+                    # try_time = 0
+                    # while not success:
+                    #     try:
+                    #         label = asyncio.run(query(self.prompt, attachments))
+                    #         success = True
+                    #         success_idxes.extend(list(range(idx*batch_size, max_idx)))
+                    #         vlm_labels.extend(label)
+                    #         time.sleep(3)
+                    #     except Exception as e:
+                    #         print(e)
+                    #         print("retrying ...")
+                    #         time.sleep(3)
+                    #         try_time += 1
+                    #         if try_time >= max_retry:
+                    #             break
+                
+                # sa_t_1 = sa_t_1[success_idxes]
+                # sa_t_2 = sa_t_2[success_idxes]
+                # r_t_1 = r_t_1[success_idxes]
+                # r_t_2 = r_t_2[success_idxes]
+                # labels = labels[success_idxes]
+
+                parallel_query = 1
+                query_time = int(np.ceil(num_batch/parallel_query))
+                for idx in range(query_time):
+                    print("querying vlm {}/{}".format(idx + 1, query_time))
+                    beg = time.time()
+                    max_idx = min((idx+1)*parallel_query, num_batch)
+                    success = False
+                    while not success:
+                        try:
+                            label = asyncio.run(query(self.prompt, [list_of_attachments[i] for i in range(idx*parallel_query, max_idx)]))
+                            success = True
+                            vlm_labels.extend(label)
+                            success_idxes.extend(list(range(idx*batch_size, max_idx*batch_size)))
+                            time.sleep(3)
+                        except Exception as e:
+                            print(e)
+                            print("retrying ...")
+                            time.sleep(3)
+                    end = time.time()
+                    print("query time: {}".format(end - beg))
+            elif self.vlm == 'bard':
+                batch_size = 5
+                num_batch = int(np.ceil(len(img_t_1)/batch_size))
+                vlm_labels = []
+                success_idxes = []
+                list_of_queries = []
+                for idx in range(num_batch):
+                    max_idx = min((idx+1)*batch_size, len(img_t_1))
+                    list_of_queries.append(bard_images[idx*batch_size:max_idx])
+                
+                vlm_labels = []
+                for query_idx, query in enumerate(list_of_queries):
+                    print("querying vlm {}/{}".format(query_idx + 1, len(list_of_queries)))
+                    batch_labels = bard_query_session([self.prompt for _ in range(len(query))], query)
+                    vlm_labels.extend(batch_labels)
+                    time.sleep(10)
+
+            vlm_labels = np.array(vlm_labels).reshape(-1, 1)
+            good_idx = (vlm_labels != -1).flatten().astype(int)
+            sa_t_1 = sa_t_1[good_idx]
+            sa_t_2 = sa_t_2[good_idx]
+            r_t_1 = r_t_1[good_idx]
+            r_t_2 = r_t_2[good_idx]
+            labels = labels[good_idx]
+            vlm_labels = vlm_labels[good_idx]
+            combined_images_list = np.array(combined_images_list)[good_idx]
+            save_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/data/{}".format(self.env_name)
+            if not os.path.exists(save_path):
+                os.makedirs(save_path)
+            with open("{}/{}.pkl".format(save_path, time_string), "wb") as f:
+                pkl.dump([combined_images_list, labels, vlm_labels], f, protocol=pkl.HIGHEST_PROTOCOL)
+
+            if len(vlm_labels) > 0:
+                acc = np.sum(vlm_labels == labels) / len(vlm_labels)
+                print("vlm label acc: {}".format(acc))
+                print("vlm label acc: {}".format(acc))
+                print("vlm label acc: {}".format(acc))
+            else:
+                print("no vlm label")
+                print("no vlm label")
+                print("no vlm label")
+
+            return sa_t_1, sa_t_2, r_t_1, r_t_2, labels, vlm_labels
+
         return sa_t_1, sa_t_2, r_t_1, r_t_2, labels
     
     def kcenter_sampling(self):
@@ -543,14 +718,20 @@ class RewardModel:
         return len(labels)
     
     def uniform_sampling(self):
-        # get queries
-        sa_t_1, sa_t_2, r_t_1, r_t_2 =  self.get_queries(
-            mb_size=self.mb_size)
+        if not self.vlm_label:
+            # get queries
+            sa_t_1, sa_t_2, r_t_1, r_t_2 =  self.get_queries(
+                mb_size=self.mb_size)
+            # get labels
+            sa_t_1, sa_t_2, r_t_1, r_t_2, labels = self.get_label(
+                sa_t_1, sa_t_2, r_t_1, r_t_2)
+        else:
+            sa_t_1, sa_t_2, r_t_1, r_t_2, img_t_1, img_t_2 =  self.get_queries(
+                mb_size=self.mb_size)
+            sa_t_1, sa_t_2, r_t_1, r_t_2, gt_labels, vlm_labels = self.get_label(
+                sa_t_1, sa_t_2, r_t_1, r_t_2, img_t_1, img_t_2)
+            labels = vlm_labels
             
-        # get labels
-        sa_t_1, sa_t_2, r_t_1, r_t_2, labels = self.get_label(
-            sa_t_1, sa_t_2, r_t_1, r_t_2)
-        
         if len(labels) > 0:
             self.put_queries(sa_t_1, sa_t_2, labels)
         

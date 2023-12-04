@@ -1,4 +1,4 @@
-# B-Pref
+## B-Pref
 
 Official codebase for [B-Pref: Benchmarking Preference-BasedReinforcement Learning](https://openreview.net/forum?id=ps95-mkHF_) contains scripts to reproduce experiments.
 
@@ -7,13 +7,13 @@ Official codebase for [B-Pref: Benchmarking Preference-BasedReinforcement Learni
 
 ```
 conda env create -f conda_env.yml
-pip install -e .[docs,tests,extra]
-cd custom_dmcontrol
-pip install -e .
-cd custom_dmc2gym
-pip install -e .
+# pip install -e .[docs,tests,extra] # this installs stable baseline, I don't think it is needed
+# cd custom_dmcontrol # not needed to install dmcontrol for now
+# pip install -e .
+# cd custom_dmc2gym
+# pip install -e .
 pip install git+https://github.com/rlworkgroup/metaworld.git@master#egg=metaworld
-pip install pybullet
+pip install pybullet 
 ```
 
 ## Run experiments using GT rewards

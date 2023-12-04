@@ -153,7 +153,9 @@ class Logger(object):
                                     formating=COMMON_EVAL_FORMAT)
 
     def _should_log(self, step, log_frequency):
+        cur_step = step
         log_frequency = log_frequency or self._log_frequency
+        # import pdb; pdb.set_trace()
         return step % log_frequency == 0
 
     def _try_sw_log(self, key, value, step):
@@ -171,6 +173,8 @@ class Logger(object):
             self._sw.add_histogram(key, histogram, step)
 
     def log(self, key, value, step, n=1, log_frequency=1):
+        cur_step = step
+        # import pdb; pdb.set_trace()
         if not self._should_log(step, log_frequency):
             return
         assert key.startswith('train') or key.startswith('eval')

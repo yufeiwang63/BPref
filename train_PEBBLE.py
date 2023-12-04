@@ -15,6 +15,7 @@ from logger import Logger
 from replay_buffer import ReplayBuffer
 from reward_model import RewardModel
 from collections import deque
+from prompt import env_prompts
 
 import utils
 import hydra
@@ -30,6 +31,8 @@ class Workspace(object):
             save_tb=cfg.log_save_tb,
             log_frequency=cfg.log_frequency,
             agent=cfg.agent.name)
+        
+        print("logger created, save path is {}".format(self.logger._log_dir))
 
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
@@ -37,8 +40,12 @@ class Workspace(object):
         
         # make env
         if 'metaworld' in cfg.env:
+            print("before creating metalworld env!")
             self.env = utils.make_metaworld_env(cfg)
+            print("after creating metalworld env!")
             self.log_success = True
+        elif cfg.env in ["CartPole-v1", "Acrobot-v1", "MountainCar-v0", "Pendulum-v0"]:
+            self.env = utils.make_classic_control_env(cfg)
         else:
             self.env = utils.make_env(cfg)
         
@@ -48,13 +55,17 @@ class Workspace(object):
             float(self.env.action_space.low.min()),
             float(self.env.action_space.high.max())
         ]
+        print("before creating agent!")
         self.agent = hydra.utils.instantiate(cfg.agent)
+        print("after creating agent!")
 
+        print("before creating replay buffer!")
         self.replay_buffer = ReplayBuffer(
             self.env.observation_space.shape,
             self.env.action_space.shape,
             int(cfg.replay_buffer_capacity),
             self.device)
+        print("after creating replay buffer!")
         
         # for logging
         self.total_feedback = 0
@@ -62,6 +73,7 @@ class Workspace(object):
         self.step = 0
 
         # instantiating the reward model
+        print("before initializing reward model!")
         self.reward_model = RewardModel(
             self.env.observation_space.shape[0],
             self.env.action_space.shape[0],
@@ -76,15 +88,29 @@ class Workspace(object):
             teacher_gamma=cfg.teacher_gamma, 
             teacher_eps_mistake=cfg.teacher_eps_mistake, 
             teacher_eps_skip=cfg.teacher_eps_skip, 
-            teacher_eps_equal=cfg.teacher_eps_equal)
+            teacher_eps_equal=cfg.teacher_eps_equal,
+            vlm_label=cfg.vlm_label,
+            prompt=env_prompts[cfg.env],
+            vlm=cfg.vlm,
+            env_name=cfg.env,
+            )
+        print("after initializing reward model!")
         
     def evaluate(self):
         average_episode_reward = 0
         average_true_episode_reward = 0
         success_rate = 0
         
+        save_gif_dir = os.path.join(self.logger._log_dir, 'eval_gifs')
+        if not os.path.exists(save_gif_dir):
+            os.makedirs(save_gif_dir)
+
         for episode in range(self.cfg.num_eval_episodes):
+            images = []
             obs = self.env.reset()
+            if "metaworld" in self.cfg.env:
+                obs = obs[0]
+
             self.agent.reset()
             done = False
             episode_reward = 0
@@ -95,12 +121,23 @@ class Workspace(object):
             while not done:
                 with utils.eval_mode(self.agent):
                     action = self.agent.act(obs, sample=False)
-                obs, reward, done, extra = self.env.step(action)
-                
+                obs, reward, terminated, truncated, extra = self.env.step(action)
+                done = terminated or truncated
+                if "metaworld" in self.cfg.env:
+                    rgb_image = self.env.render()
+                    rgb_image = rgb_image[::-1, :, :]
+                    rgb_image = rgb_image[100:400, 100:400, :]
+                elif self.cfg.env in ["CartPole-v1", "Acrobot-v1", "MountainCar-v0", "Pendulum-v0"]:
+                    rgb_image = self.env.render(mode='rgb_array')
+                images.append(rgb_image)
+
                 episode_reward += reward
                 true_episode_reward += reward
                 if self.log_success:
                     episode_success = max(episode_success, extra['success'])
+
+            save_gif_path = os.path.join(save_gif_dir, 'step{:07}_episode{:02}.gif'.format(self.step, episode))
+            utils.save_numpy_as_gif(np.array(images), save_gif_path)
                 
             average_episode_reward += episode_reward
             average_true_episode_reward += true_episode_reward
@@ -161,7 +198,7 @@ class Workspace(object):
                 total_acc = np.mean(train_acc)
                 
                 if total_acc > 0.97:
-                    break;
+                    break
                     
         print("Reward function is updated!! ACC: " + str(total_acc))
 
@@ -177,6 +214,9 @@ class Workspace(object):
 
         interact_count = 0
         while self.step < self.cfg.num_train_steps:
+            if self.step % 1000 == 0:
+                print("running step: ", self.step)
+
             if done:
                 if self.step > 0:
                     self.logger.log('train/duration', time.time() - start_time, self.step)
@@ -201,6 +241,8 @@ class Workspace(object):
                         self.step)
                 
                 obs = self.env.reset()
+                if "metaworld" in self.cfg.env:
+                    obs = obs[0]
                 self.agent.reset()
                 done = False
                 episode_reward = 0
@@ -222,6 +264,8 @@ class Workspace(object):
 
             # run training update                
             if self.step == (self.cfg.num_seed_steps + self.cfg.num_unsup_steps):
+                print("finished unsupervised exploration!!")
+
                 # update schedule
                 if self.cfg.reward_schedule == 1:
                     frac = (self.cfg.num_train_steps-self.step) / self.cfg.num_train_steps
@@ -256,6 +300,10 @@ class Workspace(object):
                 # reset interact_count
                 interact_count = 0
             elif self.step > self.cfg.num_seed_steps + self.cfg.num_unsup_steps:
+                if self.step % 1000 == 0:
+                    print("normal training!!")
+
+
                 # update reward function
                 if self.total_feedback < self.cfg.max_feedback:
                     if interact_count == self.cfg.num_interact:
@@ -287,10 +335,23 @@ class Workspace(object):
                 
             # unsupervised exploration
             elif self.step > self.cfg.num_seed_steps:
+                if self.step % 1000 == 0:
+                    print("unsupervised exploration!!")
                 self.agent.update_state_ent(self.replay_buffer, self.logger, self.step, 
                                             gradient_update=1, K=self.cfg.topK)
                 
-            next_obs, reward, done, extra = self.env.step(action)
+            next_obs, reward, terminated, truncated, extra = self.env.step(action)
+            if self.cfg.vlm_label:
+                if "metaworld" in self.cfg.env:
+                    rgb_image = self.env.render()
+                    rgb_image = rgb_image[::-1, :, :]
+                    rgb_image = rgb_image[100:400, 100:400, :]
+                elif self.cfg.env in ["CartPole-v1", "Acrobot-v1", "MountainCar-v0", "Pendulum-v0"]:
+                    rgb_image = self.env.render(mode='rgb_array')
+            else:
+                rgb_image = None
+
+            done = terminated or truncated
             reward_hat = self.reward_model.r_hat(np.concatenate([obs, action], axis=-1))
 
             # allow infinite bootstrap
@@ -303,7 +364,7 @@ class Workspace(object):
                 episode_success = max(episode_success, extra['success'])
                 
             # adding data to the reward training data
-            self.reward_model.add_data(obs, action, reward, done)
+            self.reward_model.add_data(obs, action, reward, done, img=rgb_image)
             self.replay_buffer.add(
                 obs, action, reward_hat, 
                 next_obs, done, done_no_max)
@@ -318,7 +379,10 @@ class Workspace(object):
         
 @hydra.main(config_path='config/train_PEBBLE.yaml', strict=True)
 def main(cfg):
+    print("before initializing workspace")
     workspace = Workspace(cfg)
+    print("after initializing workspace")
+
     workspace.run()
 
 if __name__ == '__main__':
