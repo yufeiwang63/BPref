@@ -16,6 +16,11 @@ pip install git+https://github.com/rlworkgroup/metaworld.git@master#egg=metaworl
 pip install pybullet 
 ```
 
+For using blip2 you need to install lavis, follow the instructions here: https://github.com/salesforce/LAVIS
+for using bardapi you need to install this: https://github.com/dsdanielpark/Bard-API
+for using openai you need to install openai
+for using microsoft copilot install: https://github.com/vsakkas/sydney.py
+
 ## Run experiments using GT rewards
 
 
