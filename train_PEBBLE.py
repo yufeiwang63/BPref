@@ -15,7 +15,7 @@ from logger import Logger
 from replay_buffer import ReplayBuffer
 from reward_model import RewardModel
 from collections import deque
-from prompt import env_prompts
+from prompt import env_prompts, clip_env_prompts
 
 import utils
 import hydra
@@ -26,6 +26,8 @@ class Workspace(object):
         print(f'workspace: {self.work_dir}')
 
         self.cfg = cfg
+        self.cfg.prompt = env_prompts[cfg.env]
+        self.cfg.clip_prompt = clip_env_prompts[cfg.env]
         self.logger = Logger(
             self.work_dir,
             save_tb=cfg.log_save_tb,
@@ -38,11 +40,13 @@ class Workspace(object):
         self.device = torch.device(cfg.device)
         self.log_success = False
         
+        os.system("cp prompt.py {}/".format(self.logger._log_dir))
+        
         # make env
         if 'metaworld' in cfg.env:
-            print("before creating metalworld env!")
+            print("before creating metaworld env!")
             self.env = utils.make_metaworld_env(cfg)
-            print("after creating metalworld env!")
+            print("after creating metaworld env!")
             self.log_success = True
         elif cfg.env in ["CartPole-v1", "Acrobot-v1", "MountainCar-v0", "Pendulum-v0"]:
             self.env = utils.make_classic_control_env(cfg)
@@ -93,6 +97,7 @@ class Workspace(object):
             prompt=env_prompts[cfg.env],
             vlm=cfg.vlm,
             env_name=cfg.env,
+            clip_prompt=clip_env_prompts[cfg.env],
             )
         print("after initializing reward model!")
         
@@ -188,6 +193,7 @@ class Workspace(object):
         self.labeled_feedback += labeled_queries
         
         train_acc = 0
+        total_acc = 0
         if self.labeled_feedback > 0:
             # update reward
             for epoch in range(self.cfg.reward_update):
@@ -201,6 +207,7 @@ class Workspace(object):
                     break
                     
         print("Reward function is updated!! ACC: " + str(total_acc))
+        return total_acc, self.reward_model.vlm_label_acc
 
     def run(self):
         episode, episode_reward, done = 0, 0, True
@@ -213,6 +220,8 @@ class Workspace(object):
         start_time = time.time()
 
         interact_count = 0
+        reward_learning_acc = 0
+        vlm_acc = 0
         while self.step < self.cfg.num_train_steps:
             if self.step % 1000 == 0:
                 print("running step: ", self.step)
@@ -220,6 +229,8 @@ class Workspace(object):
             if done:
                 if self.step > 0:
                     self.logger.log('train/duration', time.time() - start_time, self.step)
+                    self.logger.log('train/reward_learning_acc', reward_learning_acc, self.step)
+                    self.logger.log('train/vlm_acc', vlm_acc, self.step)
                     start_time = time.time()
                     self.logger.dump(
                         self.step, save=(self.step > self.cfg.num_seed_steps))
@@ -283,7 +294,7 @@ class Workspace(object):
                 self.reward_model.set_teacher_thres_equal(new_margin)
                 
                 # first learn reward
-                self.learn_reward(first_flag=1)
+                reward_learning_acc, vlm_acc = self.learn_reward(first_flag=1)
                 
                 # relabel buffer
                 self.replay_buffer.relabel_with_predictor(self.reward_model)
@@ -327,7 +338,7 @@ class Workspace(object):
                         if self.reward_model.mb_size + self.total_feedback > self.cfg.max_feedback:
                             self.reward_model.set_batch(self.cfg.max_feedback - self.total_feedback)
                             
-                        self.learn_reward()
+                        reward_learning_acc, vlm_acc = self.learn_reward()
                         self.replay_buffer.relabel_with_predictor(self.reward_model)
                         interact_count = 0
                         
@@ -348,6 +359,9 @@ class Workspace(object):
                     rgb_image = rgb_image[100:400, 100:400, :]
                 elif self.cfg.env in ["CartPole-v1", "Acrobot-v1", "MountainCar-v0", "Pendulum-v0"]:
                     rgb_image = self.env.render(mode='rgb_array')
+                    # from matplotlib import pyplot as plt
+                    # plt.imshow(rgb_image)
+                    # plt.show()
             else:
                 rgb_image = None
 

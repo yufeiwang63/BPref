@@ -14,11 +14,11 @@ import time
 from scipy.stats import norm
 
 import asyncio
-from copilot_infer import query
-from bard_infer import bard_query_session
+from vlms.copilot_infer import query
 from PIL import Image
 import datetime
 import pickle as pkl
+import random
 
 device = 'cuda'
 
@@ -97,10 +97,13 @@ class RewardModel:
                  teacher_eps_mistake=0, 
                  teacher_eps_skip=0, 
                  teacher_eps_equal=0,
-                 vlm_label=False,
+                 
+                # vlm related params
+                vlm_label=False,
                 prompt=None, 
                 env_name="CartPole-v1",
                 vlm="bard",
+                clip_prompt=None,
                 ):
         
         # train data is trajectories, must process to sa and s..   
@@ -156,6 +159,8 @@ class RewardModel:
         self.prompt = prompt
         self.env_name = env_name
         self.vlm = vlm
+        self.clip_prompt = clip_prompt
+        self.vlm_label_acc = 0
     
     def softXEnt_loss(self, input, target):
         logprobs = torch.nn.functional.log_softmax (input, dim = 1)
@@ -482,13 +487,24 @@ class RewardModel:
             img_t_1 = img_t_1.reshape(-1, img_t_1.shape[2], img_t_1.shape[3], img_t_1.shape[4])
             img_t_2 = img_t_2.reshape(-1, img_t_2.shape[2], img_t_2.shape[3], img_t_2.shape[4])
             bard_images = []
+            gpt_image_paths = []
             combined_images_list = []
+            useful_indices = []
             for idx, (img1, img2) in enumerate(zip(img_t_1, img_t_2)):
                 combined_image = np.concatenate([img1, img2], axis=1)
                 combined_images_list.append(combined_image)
                 combined_image = Image.fromarray(combined_image)
-                combined_image.save("/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/test_image/images_{}/{:06}.png".format(time_string, idx))
-                bard_images.append(open("/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/test_image/images_{}/{:06}.png".format(time_string, idx), "rb").read())
+                save_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/test_image/images_{}/{:06}.png".format(time_string, idx)
+                # combined_image.save(save_path)
+                # gpt_image_paths.append(save_path)
+                # bard_images.append(open("/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/test_image/images_{}/{:06}.png".format(time_string, idx), "rb").read())
+
+                diff = np.linalg.norm(img1 - img2)
+                if diff == 0:
+                    useful_indices.append(0)
+                else:
+                    useful_indices.append(1)
+                        
 
             if self.vlm == 'copilot':
                 os.system("cd /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/test_image/ && git add . && git commit -m 'add image' && git push")
@@ -551,6 +567,8 @@ class RewardModel:
                     end = time.time()
                     print("query time: {}".format(end - beg))
             elif self.vlm == 'bard':
+                from vlms.bard_infer import bard_query_session
+                time.sleep(60)
                 batch_size = 5
                 num_batch = int(np.ceil(len(img_t_1)/batch_size))
                 vlm_labels = []
@@ -563,27 +581,69 @@ class RewardModel:
                 vlm_labels = []
                 for query_idx, query in enumerate(list_of_queries):
                     print("querying vlm {}/{}".format(query_idx + 1, len(list_of_queries)))
-                    batch_labels = bard_query_session([self.prompt for _ in range(len(query))], query)
+                    prompts = [random.choice(self.prompt) for _ in range(len(query))]
+                    batch_labels = bard_query_session(prompts, query)
                     vlm_labels.extend(batch_labels)
+
+                    max_idx = min((query_idx+1)*batch_size, len(img_t_1))
+                    gt_labels = labels[query_idx*batch_size:max_idx]
+                    print("gt labels: {}".format(gt_labels))
+                    print("vlm labels: {}".format(batch_labels))
+                    print("batch acc: {}".format(np.sum(np.array(batch_labels) == gt_labels.flatten())/len(batch_labels)))
                     time.sleep(10)
+            elif self.vlm == 'gpt4v':
+                from vlms.gpt4_infer import gpt4v_infer
+                vlm_labels = []
+                for idx, img_path in enumerate(gpt_image_paths):
+                    print("querying vlm {}/{}".format(idx, len(gpt_image_paths)))
+                    prompt = random.choice(self.prompt)
+                    res = gpt4v_infer(prompt, img_path)
+                    vlm_labels.append(res)
+                    time.sleep(0.1)
+            elif self.vlm == 'clip':
+                from vlms.clip_infer import clip_infer
+                vlm_labels = []
+                for img1, img2 in zip(img_t_1, img_t_2):
+                    vlm_labels.append(clip_infer(img1, img2, self.clip_prompt))
+            elif self.vlm == 'blip':
+                from vlms.blip_infer import blip2_infer
+                vlm_labels = []
+                for idx, (img1, img2) in enumerate(zip(img_t_1, img_t_2)):
+                    vlm_labels.append(blip2_infer(img1, img2, self.clip_prompt))
+            elif 'blip_image_text_matching' in self.vlm:
+                from vlms.blip_infer_2 import blip2_infer_image_text_matching
+                use_prob = "prob" in self.vlm
+                vlm_labels = []
+                for idx, (img1, img2) in enumerate(zip(img_t_1, img_t_2)):
+                    vlm_labels.append(blip2_infer_image_text_matching(img1, img2, self.clip_prompt, use_prob=use_prob))
+            elif self.vlm == 'instruct_blip':
+                from vlms.instruct_blip import instructblip_infer
+                vlm_labels = []
+                for combined_img in combined_images_list:
+                    vlm_labels.append(instructblip_infer(combined_img, self.prompt))
+                
 
             vlm_labels = np.array(vlm_labels).reshape(-1, 1)
-            good_idx = (vlm_labels != -1).flatten().astype(int)
+            good_idx = (vlm_labels != -1).flatten()
+            useful_indices = (np.array(useful_indices) == 1).flatten()
+            good_idx = np.logical_and(good_idx, useful_indices)
+            
             sa_t_1 = sa_t_1[good_idx]
             sa_t_2 = sa_t_2[good_idx]
             r_t_1 = r_t_1[good_idx]
             r_t_2 = r_t_2[good_idx]
-            labels = labels[good_idx]
+            rational_labels = rational_labels[good_idx]
             vlm_labels = vlm_labels[good_idx]
             combined_images_list = np.array(combined_images_list)[good_idx]
-            save_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/data/{}".format(self.env_name)
+            save_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/BPref/data/{}-{}".format(self.env_name, self.vlm)
             if not os.path.exists(save_path):
                 os.makedirs(save_path)
             with open("{}/{}.pkl".format(save_path, time_string), "wb") as f:
-                pkl.dump([combined_images_list, labels, vlm_labels], f, protocol=pkl.HIGHEST_PROTOCOL)
+                pkl.dump([combined_images_list, rational_labels, vlm_labels], f, protocol=pkl.HIGHEST_PROTOCOL)
 
+            acc = 0
             if len(vlm_labels) > 0:
-                acc = np.sum(vlm_labels == labels) / len(vlm_labels)
+                acc = np.sum(vlm_labels == rational_labels) / len(vlm_labels)
                 print("vlm label acc: {}".format(acc))
                 print("vlm label acc: {}".format(acc))
                 print("vlm label acc: {}".format(acc))
@@ -592,6 +652,7 @@ class RewardModel:
                 print("no vlm label")
                 print("no vlm label")
 
+            self.vlm_label_acc = acc
             return sa_t_1, sa_t_2, r_t_1, r_t_2, labels, vlm_labels
 
         return sa_t_1, sa_t_2, r_t_1, r_t_2, labels

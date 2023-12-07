@@ -147,10 +147,10 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             theta = theta + self.tau * theta_dot
 
         # prevent the pole from going too far away from the center & falling too much down
-        if x < -self.x_threshold:
-            x = -self.x_threshold
-        if x > self.x_threshold:
-            x = self.x_threshold
+        if x < -self.x_threshold * 0.8:
+            x = -self.x_threshold * 0.8
+        if x > self.x_threshold * 0.8:
+            x = self.x_threshold * 0.8
         if theta < -self.theta_threshold_radians:
             theta = -self.theta_threshold_radians
         if theta > self.theta_threshold_radians:
@@ -205,12 +205,20 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         else:
             return np.array(self.state, dtype=np.float32), {}
 
+    def get_masked_image(self, image):
+        mask = (image[:, :, 0] == 129) & (image[:, :, 1] == 132) & (image[:, :, 2] == 203)
+        center = np.argwhere(mask).mean(axis=0).astype(int)
+        image = image[center[0]- 150:center[0] + 50, center[1]-100:center[1]+100, :]
+        return image
+
     def render(self, mode="human"):
-        screen_width = 600
-        screen_height = 400
+        # screen_width = 600
+        # screen_height = 400
+        screen_height = 200
+        screen_width = 200
 
         world_width = self.x_threshold * 2
-        scale = screen_width / world_width
+        scale = 600 / world_width
         polewidth = 10.0
         polelen = scale * (2 * self.length)
         cartwidth = 50.0
@@ -229,8 +237,9 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
 
         l, r, t, b = -cartwidth / 2, cartwidth / 2, cartheight / 2, -cartheight / 2
         axleoffset = cartheight / 4.0
-        cartx = x[0] * scale + screen_width / 2.0  # MIDDLE OF CART
-        carty = 100  # TOP OF CART
+        # cartx = x[0] * scale + screen_width / 2.0  # MIDDLE OF CART
+        cartx = screen_width / 2.0  # MIDDLE OF CART
+        carty = 40  # TOP OF CART
         cart_coords = [(l, b), (l, t), (r, t), (r, b)]
         cart_coords = [(c[0] + cartx, c[1] + carty) for c in cart_coords]
         gfxdraw.aapolygon(self.surf, cart_coords, (0, 0, 0))
@@ -274,9 +283,11 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             pygame.display.flip()
 
         if mode == "rgb_array":
-            return np.transpose(
+            image = np.transpose(
                 np.array(pygame.surfarray.pixels3d(self.screen)), axes=(1, 0, 2)
             )
+            
+            return image
         else:
             return self.isopen
 

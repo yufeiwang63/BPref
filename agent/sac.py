@@ -35,7 +35,9 @@ class SACAgent(Agent):
                  critic_betas, critic_tau, critic_target_update_frequency,
                  batch_size, learnable_temperature,
                  normalize_state_entropy=True):
+        print("creating sac agent!")
         super().__init__()
+        print("after super.init")
 
         self.action_range = action_range
         self.device = torch.device(device)
@@ -48,7 +50,9 @@ class SACAgent(Agent):
         self.critic_cfg = critic_cfg
         self.critic_lr = critic_lr
         self.critic_betas = critic_betas
+        print("before TorchRunningMeanStd")
         self.s_ent_stats = utils.TorchRunningMeanStd(shape=[1], device=device)
+        print("after TorchRunningMeanStd")
         self.normalize_state_entropy = normalize_state_entropy
         self.init_temperature = init_temperature
         self.alpha_lr = alpha_lr
@@ -56,12 +60,16 @@ class SACAgent(Agent):
         self.actor_cfg = actor_cfg
         self.actor_betas = actor_betas
         self.alpha_lr = alpha_lr
-        
+        print("in sac, right before instantiate critic and actor")
+
         self.critic = hydra.utils.instantiate(critic_cfg).to(self.device)
+        print("in sac, after instantiate critic")
         self.critic_target = hydra.utils.instantiate(critic_cfg).to(
             self.device)
+        print("in sac, after instantiate critic target")
         self.critic_target.load_state_dict(self.critic.state_dict())
         self.actor = hydra.utils.instantiate(actor_cfg).to(self.device)
+        print("in sac, after instantiate actor")
         self.log_alpha = torch.tensor(np.log(init_temperature)).to(self.device)
         self.log_alpha.requires_grad = True
         
@@ -154,7 +162,7 @@ class SACAgent(Agent):
         self.critic_optimizer.zero_grad()
         critic_loss.backward()
         self.critic_optimizer.step()
-        self.critic.log(logger, step)
+        # self.critic.log(logger, step)
         
     def update_critic_state_ent(
         self, obs, full_obs, action, next_obs, not_done, logger,
@@ -242,7 +250,7 @@ class SACAgent(Agent):
         actor_loss.backward()
         self.actor_optimizer.step()
 
-        self.actor.log(logger, step)
+        # self.actor.log(logger, step)
 
         if self.learnable_temperature:
             self.log_alpha_optimizer.zero_grad()
