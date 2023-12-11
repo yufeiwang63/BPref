@@ -71,7 +71,7 @@ def filter_func(x):
     return False
 
 def label_func(x):
-    return str(x['vlm_label']) + "_" + str(x['teacher_eps_mistake']) + "_" + x['vlm']
+    return str(x['vlm_label']) + "_" + str(x['teacher_eps_mistake']) + "_" + x['vlm'] + "_" + str(x.get("flip_vlm_label", "0"))
 
 for key_idx, key in enumerate(plot_keys):
     ax = axes[key_idx]

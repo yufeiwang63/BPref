@@ -4,9 +4,13 @@ import numpy as np
 from matplotlib import pyplot as plt
 from PIL import Image
 
-data_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/data/metaworld_sweep-into-v2-instruct_blip/2023-12-06-18-35-42.pkl"
+data_path = "exp/metaworld_sweep-into-v2/tune-prompt/2023-12-07-21-53-37/vlm_1blip_image_text_matching_H256_L3_lr0.0003/teacher_b-1_g1_m0_s0_e0/label_smooth_0.0/schedule_0/PEBBLE_init1000_unsup9000_inter2000_maxfeed20000_seg2_acttanh_Rlr0.0003_Rbatch40_Rupdate10_en3_sample0_large_batch10_seed0/vlm_label_set/2023-12-07-22-45-48.pkl"
 with open(data_path, "rb") as f:
     data = pkl.load(f)
+save_path = data_path.split("/")[1]
+save_path = os.path.join("data", "images", save_path)
+if not os.path.exists(save_path):
+    os.makedirs(save_path)
 
 images, gt_labels, stored_vlm_labels = data
 gt_labels = gt_labels.flatten()
@@ -34,10 +38,10 @@ for i in range(0, len(images)):
     
     pil_image1 = Image.fromarray(image1)
     pil_image2 = Image.fromarray(image2)
-    pil_image1.save("data/image_{}_1.png".format(i))
-    pil_image2.save("data/image_{}_2.png".format(i))
+    pil_image1.save(f"{save_path}/image_{i}_1.png")
+    pil_image2.save(f"{save_path}/image_{i}_2.png")
     combined_image = Image.fromarray(combined_image)
-    combined_image.save("data/image_{}_combined.png".format(i))
+    combined_image.save(f"{save_path}/image_{i}_combined.png")
     
     # plt.imshow(images[i])
     # plt.show()
