@@ -100,10 +100,13 @@ class RewardModel:
                  
                 # vlm related params
                 vlm_label=False,
-                prompt=None, 
+                vqa_prompt=None, 
                 env_name="CartPole-v1",
                 vlm="bard",
                 clip_prompt=None,
+                sequence_clip_prompt=None,
+                log_dir=None,
+                flip_vlm_label=False,
                 ):
         
         # train data is trajectories, must process to sa and s..   
@@ -156,11 +159,14 @@ class RewardModel:
 
         # vlm label
         self.vlm_label = vlm_label
-        self.prompt = prompt
+        self.vqa_prompt = vqa_prompt
         self.env_name = env_name
         self.vlm = vlm
         self.clip_prompt = clip_prompt
         self.vlm_label_acc = 0
+        self.log_dir = log_dir
+        self.sequence_clip_prompt = sequence_clip_prompt
+        self.flip_vlm_label = flip_vlm_label
     
     def softXEnt_loss(self, input, target):
         logprobs = torch.nn.functional.log_softmax (input, dim = 1)
@@ -311,7 +317,10 @@ class RewardModel:
             )
             
     def load(self, model_dir, step):
+        file_dir = os.path.dirname(os.path.realpath(__file__))
+        model_dir = os.path.join(file_dir, model_dir)
         for member in range(self.de):
+            # import pdb; pdb.set_trace()
             self.ensemble[member].load_state_dict(
                 torch.load('%s/reward_model_%s_%s.pt' % (model_dir, step, member))
             )
@@ -388,7 +397,13 @@ class RewardModel:
         random_idx_1 = np.random.choice(len_traj-self.size_segment, size=mb_size, replace=True).reshape(-1,1)
         time_index_1 = time_index + random_idx_1
         if self.vlm_label:
-            image_time_index = np.array([[i*len_traj+self.size_segment - 1] for i in range(mb_size)])
+            if self.vlm_label == 1: # use a single image for querying vlm for the labeling
+                image_time_index = np.array([[i*len_traj+self.size_segment - 1] for i in range(mb_size)])
+            else:
+                interval = self.size_segment // self.vlm_label
+                image_time_index = np.array([[i * len_traj + self.size_segment - 1 - j * interval for j in range(self.vlm_label - 1, -1, -1)] for i in range(mb_size)])
+                # import pdb; pdb.set_trace()
+
             image_time_index_2 = image_time_index + random_idx_2
             image_time_index_1 = image_time_index + random_idx_1
 
@@ -397,8 +412,15 @@ class RewardModel:
         sa_t_2 = np.take(sa_t_2, time_index_2, axis=0) # Batch x size_seg x dim of s&a
         r_t_2 = np.take(r_t_2, time_index_2, axis=0) # Batch x size_seg x 1
         if self.vlm_label:
-            img_t_1 = np.take(img_t_1, image_time_index_1, axis=0) # Batch x 1 x *img_dim
-            img_t_2 = np.take(img_t_2, image_time_index_2, axis=0) # Batch x 1 x *img_dim
+            img_t_1 = np.take(img_t_1, image_time_index_1, axis=0) # Batch x vlm_label x *img_dim
+            img_t_2 = np.take(img_t_2, image_time_index_2, axis=0) # Batch x vlm_label x *img_dim
+            
+            batch_size, horizon, image_height, image_width, _ = img_t_1.shape
+
+            transposed_images = np.transpose(img_t_1, (0, 2, 1, 3, 4))
+            img_t_1 = transposed_images.reshape(batch_size, image_height, horizon * image_width, 3) # batch x image_height x (time_horizon * image_width) x 3
+            transposed_images = np.transpose(img_t_2, (0, 2, 1, 3, 4))
+            img_t_2 = transposed_images.reshape(batch_size, image_height, horizon * image_width, 3) # batch x image_height x (time_horizon * image_width) x 3
         
         if not self.vlm_label:
             return sa_t_1, sa_t_2, r_t_1, r_t_2
@@ -484,8 +506,8 @@ class RewardModel:
             time_string = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d-%H-%M-%S')
 
             os.system("cd /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/test_image && mkdir images_{}".format(time_string))
-            img_t_1 = img_t_1.reshape(-1, img_t_1.shape[2], img_t_1.shape[3], img_t_1.shape[4])
-            img_t_2 = img_t_2.reshape(-1, img_t_2.shape[2], img_t_2.shape[3], img_t_2.shape[4])
+            # img_t_1 = img_t_1.reshape(-1, img_t_1.shape[2], img_t_1.shape[3], img_t_1.shape[4])
+            # img_t_2 = img_t_2.reshape(-1, img_t_2.shape[2], img_t_2.shape[3], img_t_2.shape[4])
             bard_images = []
             gpt_image_paths = []
             combined_images_list = []
@@ -527,7 +549,7 @@ class RewardModel:
                     # try_time = 0
                     # while not success:
                     #     try:
-                    #         label = asyncio.run(query(self.prompt, attachments))
+                    #         label = asyncio.run(query(self.vqa_prompt, attachments))
                     #         success = True
                     #         success_idxes.extend(list(range(idx*batch_size, max_idx)))
                     #         vlm_labels.extend(label)
@@ -555,7 +577,7 @@ class RewardModel:
                     success = False
                     while not success:
                         try:
-                            label = asyncio.run(query(self.prompt, [list_of_attachments[i] for i in range(idx*parallel_query, max_idx)]))
+                            label = asyncio.run(query(self.vqa_prompt, [list_of_attachments[i] for i in range(idx*parallel_query, max_idx)]))
                             success = True
                             vlm_labels.extend(label)
                             success_idxes.extend(list(range(idx*batch_size, max_idx*batch_size)))
@@ -581,7 +603,7 @@ class RewardModel:
                 vlm_labels = []
                 for query_idx, query in enumerate(list_of_queries):
                     print("querying vlm {}/{}".format(query_idx + 1, len(list_of_queries)))
-                    prompts = [random.choice(self.prompt) for _ in range(len(query))]
+                    prompts = [random.choice(self.vqa_prompt) for _ in range(len(query))]
                     batch_labels = bard_query_session(prompts, query)
                     vlm_labels.extend(batch_labels)
 
@@ -596,31 +618,34 @@ class RewardModel:
                 vlm_labels = []
                 for idx, img_path in enumerate(gpt_image_paths):
                     print("querying vlm {}/{}".format(idx, len(gpt_image_paths)))
-                    prompt = random.choice(self.prompt)
+                    prompt = random.choice(self.vqa_prompt)
                     res = gpt4v_infer(prompt, img_path)
                     vlm_labels.append(res)
                     time.sleep(0.1)
             elif self.vlm == 'clip':
                 from vlms.clip_infer import clip_infer
                 vlm_labels = []
+                prompt = self.clip_prompt if self.vlm_label == 1 else self.sequence_clip_prompt
                 for img1, img2 in zip(img_t_1, img_t_2):
-                    vlm_labels.append(clip_infer(img1, img2, self.clip_prompt))
+                    vlm_labels.append(clip_infer(img1, img2, prompt))
             elif self.vlm == 'blip':
                 from vlms.blip_infer import blip2_infer
                 vlm_labels = []
+                prompt = self.clip_prompt if self.vlm_label == 1 else self.sequence_clip_prompt
                 for idx, (img1, img2) in enumerate(zip(img_t_1, img_t_2)):
-                    vlm_labels.append(blip2_infer(img1, img2, self.clip_prompt))
+                    vlm_labels.append(blip2_infer(img1, img2, prompt))
             elif 'blip_image_text_matching' in self.vlm:
                 from vlms.blip_infer_2 import blip2_infer_image_text_matching
                 use_prob = "prob" in self.vlm
                 vlm_labels = []
+                prompt = self.clip_prompt if self.vlm_label == 1 else self.sequence_clip_prompt
                 for idx, (img1, img2) in enumerate(zip(img_t_1, img_t_2)):
-                    vlm_labels.append(blip2_infer_image_text_matching(img1, img2, self.clip_prompt, use_prob=use_prob))
+                    vlm_labels.append(blip2_infer_image_text_matching(img1, img2, prompt, use_prob=use_prob))
             elif self.vlm == 'instruct_blip':
                 from vlms.instruct_blip import instructblip_infer
                 vlm_labels = []
                 for combined_img in combined_images_list:
-                    vlm_labels.append(instructblip_infer(combined_img, self.prompt))
+                    vlm_labels.append(instructblip_infer(combined_img, self.vqa_prompt))
                 
 
             vlm_labels = np.array(vlm_labels).reshape(-1, 1)
@@ -635,7 +660,9 @@ class RewardModel:
             rational_labels = rational_labels[good_idx]
             vlm_labels = vlm_labels[good_idx]
             combined_images_list = np.array(combined_images_list)[good_idx]
-            save_path = "/media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/BPref/data/{}-{}".format(self.env_name, self.vlm)
+            if self.flip_vlm_label:
+                vlm_labels = 1 - vlm_labels
+            save_path = os.path.join(self.log_dir, "vlm_label_set")
             if not os.path.exists(save_path):
                 os.makedirs(save_path)
             with open("{}/{}.pkl".format(save_path, time_string), "wb") as f:

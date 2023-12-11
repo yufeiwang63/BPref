@@ -1,4 +1,4 @@
-env_prompts = {
+vqa_env_prompts = {
     "metaworld_sweep-into-v2": 
 #         """
 # There are two sub-images in the image, one on the left, and one on the right.
@@ -24,7 +24,13 @@ Is the green cube in closer position to the white sphere in the left or right su
 Is the button fully pressed in the left or right sub-image?
 """,
 
+    "metaworld_door-close-v2": "The black door is fully closed.",
+
 "metaworld_drawer-close-v2": "Is the green drawer fully closed in the left or right sub-image?",
+    "metaworld_drawer-open-v2": "The green drawer fully opened in the left or right sub-image?",
+    "metaworld_soccer-v2": "The soccer is in the goal.",
+    "metaworld_handle-press-v2": "The red handle is fully pressed down.",
+    "metaworld_door-open-v2": "The black door is fully opened.", # solved
 
     # use multiple prompts which change slightly from each other for the same env to avoid being banned by bard
     "CartPole-v1": ["""
@@ -79,7 +85,20 @@ clip_env_prompts = {
     "CartPole-v1": "The brown stick is vertically upright on the black rectangle.",
     # "metaworld_sweep-into-v2": "The green cube is very close to the hole (indicated by the white sphere) on the table.",
     # "metaworld_sweep-into-v2": "The position of the green cube is very close to the position of the white sphere.",
-    "metaworld_sweep-into-v2": "The green cube is close to the white sphere.",
-    "metaworld_button-press-v2": "The red button is fully pressed.",
-    "metaworld_drawer-close-v2": "The green drawer is fully closed.",
+    "metaworld_sweep-into-v2": "The green cube is very close to the white sphere.", # unsolved there is reward issue
+    "metaworld_button-press-v2": "The red button is fully pressed.", # partially solved
+    "metaworld_drawer-close-v2": "The green drawer is fully closed.", # solved
+    # "metaworld_drawer-open-v2": "The green drawer is opened.", # 20% solve, there is exploration issue
+    "metaworld_drawer-open-v2": "The green drawer is fully closed.", # let's try the flipped version.
+    "metaworld_door-close-v2": "The black door is fully closed.", # solved
+    "metaworld_door-open-v2": "The black door is fully opened.", # solved
+    "metaworld_soccer-v2": "The soccer is in the goal.", # not solved, there is reward issue
+    "metaworld_handle-press-v2": "The red handle is fully pressed down.", 
+}
+
+sequence_clip_env_prompts = {
+    "metaworld_sweep-into-v2": "The green cube is approaching the white sphere.",
+    "metaworld_door-open-v2": "The black door is fully opened.", # solved
+    "metaworld_handle-press-v2": "The red handle is fully pressed down.", 
+    "metaworld_drawer-open-v2": "The green drawer is opened.", # 20% solve, there is exploration issue
 }

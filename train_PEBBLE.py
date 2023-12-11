@@ -15,7 +15,7 @@ from logger import Logger
 from replay_buffer import ReplayBuffer
 from reward_model import RewardModel
 from collections import deque
-from prompt import env_prompts, clip_env_prompts
+from prompt import vqa_env_prompts, clip_env_prompts, sequence_clip_env_prompts
 
 import utils
 import hydra
@@ -26,7 +26,7 @@ class Workspace(object):
         print(f'workspace: {self.work_dir}')
 
         self.cfg = cfg
-        self.cfg.prompt = env_prompts[cfg.env]
+        self.cfg.prompt = vqa_env_prompts[cfg.env]
         self.cfg.clip_prompt = clip_env_prompts[cfg.env]
         self.logger = Logger(
             self.work_dir,
@@ -40,7 +40,7 @@ class Workspace(object):
         self.device = torch.device(cfg.device)
         self.log_success = False
         
-        os.system("cp prompt.py {}/".format(self.logger._log_dir))
+        os.system("cp /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/BPref/prompt.py {}/".format(self.logger._log_dir))
         
         # make env
         if 'metaworld' in cfg.env:
@@ -94,12 +94,23 @@ class Workspace(object):
             teacher_eps_skip=cfg.teacher_eps_skip, 
             teacher_eps_equal=cfg.teacher_eps_equal,
             vlm_label=cfg.vlm_label,
-            prompt=env_prompts[cfg.env],
+            vqa_prompt=vqa_env_prompts[cfg.env],
             vlm=cfg.vlm,
             env_name=cfg.env,
             clip_prompt=clip_env_prompts[cfg.env],
+            log_dir=self.logger._log_dir,
+            sequence_clip_prompt=sequence_clip_env_prompts[cfg.env],
+            flip_vlm_label=cfg.flip_vlm_label,
             )
         print("after initializing reward model!")
+        
+        if self.cfg.reward_model_load_dir != "None":
+            print("loading reward model at {}".format(self.cfg.reward_model_load_dir))
+            self.reward_model.load(self.cfg.reward_model_load_dir, 1000000)
+            
+        if self.cfg.agent_model_load_dir != "None":
+            print("loading agent model at {}".format(self.cfg.agent_model_load_dir))
+            self.agent.load(self.cfg.agent_model_load_dir, 1000000)
         
     def evaluate(self):
         average_episode_reward = 0
@@ -131,7 +142,8 @@ class Workspace(object):
                 if "metaworld" in self.cfg.env:
                     rgb_image = self.env.render()
                     rgb_image = rgb_image[::-1, :, :]
-                    rgb_image = rgb_image[100:400, 100:400, :]
+                    if "drawer" in self.cfg.env or "button" in self.cfg.env: #or "sweep" in self.cfg.env:
+                        rgb_image = rgb_image[100:400, 100:400, :]
                 elif self.cfg.env in ["CartPole-v1", "Acrobot-v1", "MountainCar-v0", "Pendulum-v0"]:
                     rgb_image = self.env.render(mode='rgb_array')
                 images.append(rgb_image)
@@ -141,7 +153,7 @@ class Workspace(object):
                 if self.log_success:
                     episode_success = max(episode_success, extra['success'])
 
-            save_gif_path = os.path.join(save_gif_dir, 'step{:07}_episode{:02}.gif'.format(self.step, episode))
+            save_gif_path = os.path.join(save_gif_dir, 'step{:07}_episode{:02}_{}.gif'.format(self.step, episode, round(true_episode_reward, 2)))
             utils.save_numpy_as_gif(np.array(images), save_gif_path)
                 
             average_episode_reward += episode_reward
@@ -356,7 +368,8 @@ class Workspace(object):
                 if "metaworld" in self.cfg.env:
                     rgb_image = self.env.render()
                     rgb_image = rgb_image[::-1, :, :]
-                    rgb_image = rgb_image[100:400, 100:400, :]
+                    if "drawer" in self.cfg.env or "button" in self.cfg.env: #or "sweep" in self.cfg.env:
+                        rgb_image = rgb_image[100:400, 100:400, :]
                 elif self.cfg.env in ["CartPole-v1", "Acrobot-v1", "MountainCar-v0", "Pendulum-v0"]:
                     rgb_image = self.env.render(mode='rgb_array')
                     # from matplotlib import pyplot as plt
