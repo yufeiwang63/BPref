@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import math
 import utils
 import hydra
+import os
 
 from agent import Agent
 from agent.critic import DoubleQCritic
@@ -208,7 +209,7 @@ class SACAgent(Agent):
         critic_loss.backward()
         self.critic_optimizer.step()
 
-        self.critic.log(logger, step)
+        # self.critic.log(logger, step)
     
     def save(self, model_dir, step):
         torch.save(
@@ -222,6 +223,9 @@ class SACAgent(Agent):
         )
         
     def load(self, model_dir, step):
+        file_dir = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+        model_dir = os.path.join(file_dir, model_dir)
+        
         self.actor.load_state_dict(
             torch.load('%s/actor_%s.pt' % (model_dir, step))
         )
