@@ -30,9 +30,9 @@ if __name__ == "__main__":
     print("pulling from {} {}".format(args.host, args.name))
 
     if args.host == 'seuss':
-        dir_path = '/data/yufeiw2/pytorch_sac/'
+        dir_path = '/data/yufeiw2/BPref/'
     elif args.host == 'autobot':
-        dir_path = '/project_data/held/yufeiw2/pytorch_sac/'
+        dir_path = '/project_data/held/yufeiw2/BPref/'
     # dir_path = '/data/yufeiw2/softagent_prvil_merge/'
     # else:
         # dir_path = config.REMOTE_DIR[args.host]

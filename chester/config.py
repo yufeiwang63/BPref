@@ -8,12 +8,12 @@ LOG_DIR = os.path.join(PROJECT_PATH, "data")
 
 # Make sure to use absolute path
 HOME_FOLDER = 'yufeiw2'
-PROJECT_NAME = 'pytorch_sac'
+PROJECT_NAME = 'BPref'
 
 # Make sure to use absolute path
 REMOTE_DIR = {
-    'seuss': '/data/yufeiw2/pytorch_sac/',
-    'autobot': '/project_data/held/yufeiw2/pytorch_sac/'.format(HOME_FOLDER, PROJECT_NAME),
+    'seuss': '/data/yufeiw2/BPref/',
+    'autobot': '/project_data/held/yufeiw2/BPref/'.format(HOME_FOLDER, PROJECT_NAME),
 
 }
 

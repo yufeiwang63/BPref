@@ -5,7 +5,7 @@ PROJECT_PATH = osp.abspath(osp.join(osp.dirname(__file__), '..'))
 LOG_DIR = os.path.join(PROJECT_PATH, "data")
 
 HOME_FOLDER = 'yufeiw2'
-PROJECT_NAME = 'pytorch_sac'
+PROJECT_NAME = 'BPref'
 
 # Make sure to use absolute path
 REMOTE_DIR = {
