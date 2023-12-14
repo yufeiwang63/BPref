@@ -19,6 +19,7 @@ from prompt import vqa_env_prompts, clip_env_prompts, sequence_clip_env_prompts
 
 import utils
 import hydra
+from PIL import Image
 
 from vlms.blip_infer_2 import blip2_image_text_matching
 
@@ -116,7 +117,7 @@ class Workspace(object):
             print("loading agent model at {}".format(self.cfg.agent_model_load_dir))
             self.agent.load(self.cfg.agent_model_load_dir, 1000000)
         
-    def evaluate(self):
+    def evaluate(self, save_images=False):
         average_episode_reward = 0
         average_true_episode_reward = 0
         success_rate = 0
@@ -161,6 +162,14 @@ class Workspace(object):
 
             save_gif_path = os.path.join(save_gif_dir, 'step{:07}_episode{:02}_{}.gif'.format(self.step, episode, round(true_episode_reward, 2)))
             utils.save_numpy_as_gif(np.array(images), save_gif_path)
+            if save_images:
+                save_image_dir = os.path.join(self.logger._log_dir, 'eval_images')
+                if not os.path.exists(save_image_dir):
+                    os.makedirs(save_image_dir)
+                for i, image in enumerate(images):
+                    save_image_path = os.path.join(save_image_dir, 'step{:07}_episode{:02}_{}.png'.format(self.step, episode, i))
+                    image = Image.fromarray(image)
+                    image.save(save_image_path)
                 
             average_episode_reward += episode_reward
             average_true_episode_reward += true_episode_reward
@@ -183,7 +192,6 @@ class Workspace(object):
             self.logger.log('train/true_episode_success', success_rate,
                         self.step)
         self.logger.dump(self.step)
-        # import pdb; pdb.set_trace()
     
     def learn_reward(self, first_flag=0):
                 
@@ -431,6 +439,9 @@ def main(cfg):
     workspace = Workspace(cfg)
     print("after initializing workspace")
 
+    if cfg.mode == 'eval':
+        workspace.evaluate(save_images=cfg.save_images)
+        exit()
     workspace.run()
 
 if __name__ == '__main__':
