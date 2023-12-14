@@ -20,22 +20,24 @@ def blip2_infer_image_text_matching(rgb1, rgb2, text, use_prob=False, return_sco
     matching_cosine_scores = []
     for rgb in [rgb1, rgb2]:
         raw_image = Image.fromarray(rgb).convert("RGB")
-        img = vis_processors["eval"](raw_image).unsqueeze(0).to(device)
+        with torch.no_grad():
+            img = vis_processors["eval"](raw_image).unsqueeze(0).to(device)
 
-        itm_output = model({"image": img, "text_input": txt}, match_head="itm")
-        itm_scores = torch.nn.functional.softmax(itm_output, dim=1)
-        itm_score = itm_scores[:, 1].item()
-        # print(f'The image and text are matched with a probability of {itm_score:.3%}')
-        matching_probabilities.append(itm_score)
+            itm_output = model({"image": img, "text_input": txt}, match_head="itm")
+            itm_scores = torch.nn.functional.softmax(itm_output, dim=1)
+            itm_score = itm_scores[:, 1].item()
+            # print(f'The image and text are matched with a probability of {itm_score:.3%}')
+            matching_probabilities.append(itm_score)
 
-        itc_score = model({"image": img, "text_input": txt}, match_head='itc')
-        # print('The image feature and text feature has a cosine similarity of %.4f'%itc_score)
-        matching_cosine_scores.append(itc_score)
+            itc_score = model({"image": img, "text_input": txt}, match_head='itc').item()
+            # print('The image feature and text feature has a cosine similarity of %.4f'%itc_score)
+            matching_cosine_scores.append(itc_score)
         
     # print("matching probalities:", matching_probabilities)
     # print("matching cosine scores: ", matching_cosine_scores)
     # img = np.concatenate([rgb1, rgb2], axis=1)
     # plt.imshow(img)
+    # plt.title(f"matching cosine scores: {matching_cosine_scores}")
     # plt.show()
     
     if not return_scores:
@@ -55,4 +57,29 @@ def blip2_infer_image_text_matching(rgb1, rgb2, text, use_prob=False, return_sco
                 return -1
     else:
         return matching_probabilities, matching_cosine_scores
+    
+def blip2_image_text_matching(rgb, text, use_prob=False):
+
+    caption = text
+    with torch.no_grad():
+        txt = text_processors["eval"](caption)
+
+        raw_image = Image.fromarray(rgb).convert("RGB")
+        img = vis_processors["eval"](raw_image).unsqueeze(0).to(device)
+
+        itm_output = model({"image": img, "text_input": txt}, match_head="itm")
+        itm_scores = torch.nn.functional.softmax(itm_output, dim=1)
+        itm_score = itm_scores[:, 1].item()
+        itc_score = model({"image": img, "text_input": txt}, match_head='itc').item()
+        
+    # print("matching probalities:", matching_probabilities)
+    # print("matching cosine scores: ", matching_cosine_scores)
+    # img = np.concatenate([rgb1, rgb2], axis=1)
+    # plt.imshow(img)
+    # plt.show()
+
+    if use_prob:
+        return itm_score * 10
+    else:
+        return itc_score * 10
     

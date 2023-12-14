@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 env_name = "door-open-v2"
 # env_name = "soccer-v2"
 # env_name = "handle-press-v2"
-env_name = "drawer-open-v2"
+# env_name = "drawer-open-v2"
 
 # for env_name in _env_dict.ALL_V2_ENVIRONMENTS.keys():
 # env_name = "basketball-v2"
@@ -23,7 +23,7 @@ else:
 env_rgb = None
 camera_names = ["topview", "corner", "corner2", "corner3", "behindGripper", "gripperPOV", env_name]
 env = env_cls(render_mode='rgb_array')
-for _ in range(5):
+for _ in range(1):
     rgbs = []
     for camera_name in camera_names:
         env.camera_name = camera_name
@@ -45,8 +45,8 @@ for _ in range(5):
         axes[i].imshow(rgb[::-1, :, :])
         axes[i].set_title(camera_names[i])
         
-    plt.title(env_name)
-    plt.show()
+    # plt.title(env_name)
+    # plt.show()
 
 
 # import torch

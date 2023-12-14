@@ -91,7 +91,8 @@ clip_env_prompts = {
     # "metaworld_drawer-open-v2": "The green drawer is opened.", # 20% solve, there is exploration issue
     "metaworld_drawer-open-v2": "The green drawer is fully closed.", # let's try the flipped version.
     "metaworld_door-close-v2": "The black door is fully closed.", # solved
-    "metaworld_door-open-v2": "The black door is fully opened.", # solved
+    # "metaworld_door-open-v2": "The black door is opened.", 
+    "metaworld_door-open-v2": "The black door is fully closed.", # let's try the flipped version.
     "metaworld_soccer-v2": "The soccer is in the goal.", # not solved, there is reward issue
     "metaworld_handle-press-v2": "The red handle is fully pressed down.", 
 }
@@ -101,4 +102,9 @@ sequence_clip_env_prompts = {
     "metaworld_door-open-v2": "The black door is fully opened.", # solved
     "metaworld_handle-press-v2": "The red handle is fully pressed down.", 
     "metaworld_drawer-open-v2": "The green drawer is opened.", # 20% solve, there is exploration issue
+    "metaworld_door-close-v2": "The black door is fully closed.", # solved
+    "metaworld_drawer-close-v2": "The green drawer is fully closed.", # solved
+    "metaworld_button-press-v2": "The red button is fully pressed.", # partially solved
+    "CartPole-v1": "The brown stick is vertically upright on the black rectangle.",
+    "metaworld_soccer-v2": "The soccer is in the goal.", # not solved, there is reward issue
 }

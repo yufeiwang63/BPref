@@ -501,11 +501,11 @@ class RewardModel:
         labels[margin_index] = -1 
         
         if self.vlm_label:
-            os.system("cd /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/test_image && rm -rf images_*")
+            # os.system("cd /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/test_image && rm -rf images_*")
             ts = time.time()
             time_string = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d-%H-%M-%S')
 
-            os.system("cd /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/test_image && mkdir images_{}".format(time_string))
+            # os.system("cd /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/test_image && mkdir images_{}".format(time_string))
             # img_t_1 = img_t_1.reshape(-1, img_t_1.shape[2], img_t_1.shape[3], img_t_1.shape[4])
             # img_t_2 = img_t_2.reshape(-1, img_t_2.shape[2], img_t_2.shape[3], img_t_2.shape[4])
             bard_images = []

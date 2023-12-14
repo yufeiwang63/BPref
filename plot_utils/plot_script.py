@@ -39,16 +39,17 @@ else:
     plot_keys = [args.plot_key]
 
 ylim_up = [
-    500,
-    500,
-    40
+    None,
+    None,
+    None
 ]
 
 ylim_low = [
-    -100,-2,-50
+    None,None,None
 ]
 
-colors = {}
+colors = {
+}
 
 idx_colors = {
     0: '#1f77b4',
@@ -71,7 +72,7 @@ def filter_func(x):
     return False
 
 def label_func(x):
-    return str(x['vlm_label']) + "_" + str(x['teacher_eps_mistake']) + "_" + x['vlm'] + "_" + str(x.get("flip_vlm_label", "0"))
+    return str(x['vlm_label']) + "_" + str(x['teacher_eps_mistake']) + "_" + x.get('vlm', "None") + "_" + str(x.get("flip_vlm_label", "0")) + str(x.get("reward", "learn_from_preference"))
 
 for key_idx, key in enumerate(plot_keys):
     ax = axes[key_idx]
@@ -133,7 +134,8 @@ for key_idx, key in enumerate(plot_keys):
 
     v_min, v_max = np.min(min_values), np.max(max_values)
     ax.set_ylim(v_min - np.abs(v_min * 0.1), v_max + np.abs(v_max * 0.1))
-    # ax.set_ylim(ylim_low[key_idx], ylim_up[key_idx])
+    if ylim_up[key_idx] is not None and ylim_low[key_idx] is not None:
+        ax.set_ylim(ylim_low[key_idx], ylim_up[key_idx])
     ax.grid(True)
 
 # plt.grid(True)

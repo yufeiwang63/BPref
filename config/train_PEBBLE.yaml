@@ -60,6 +60,7 @@ flip_vlm_label: 0
 exp_name: tune-prompt
 prompt: ???
 clip_prompt: "The green drawer is completely opened."
+reward: learn_from_preference
 
 # load pretrained models
 reward_model_load_dir: "None"

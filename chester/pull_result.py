@@ -8,8 +8,8 @@ from chester import config
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('host', type=str)
-    parser.add_argument('folder', type=str)
-    parser.add_argument('--name', type=str, default='yufei')
+    parser.add_argument('env', type=str)
+    parser.add_argument('--exp_name', type=str, default='yufei')
     parser.add_argument('--dry', action='store_true', default=False)
     parser.add_argument('--bare', action='store_true', default=False)
     parser.add_argument('--img', action='store_true', default=False)
@@ -17,29 +17,23 @@ if __name__ == "__main__":
     parser.add_argument('--pth', action='store_true', default=False)
     parser.add_argument('--gif', action='store_true', default=False)
     parser.add_argument('--best', action='store_true', default=False)
-    parser.add_argument('--newdatadir', action='store_true', default=False)
     args = parser.parse_args()
 
-    args.folder = args.folder.rstrip('/')
-    if args.folder.rfind('/') !=-1:
-        local_dir = os.path.join('./data', args.host, args.folder[:args.folder.rfind('/')])
-    else:
-        local_dir = os.path.join('./data', args.host)
-    # if args.newdatadir:
-
-    print("pulling from {} {}".format(args.host, args.name))
+    local_dir = os.path.join('./exp', args.env, args.exp_name)
+    print("pulling from {} {} {}".format(args.host, args.env, args.exp_name))
 
     if args.host == 'seuss':
         dir_path = '/data/yufeiw2/BPref/'
     elif args.host == 'autobot':
         dir_path = '/project_data/held/yufeiw2/BPref/'
-    # dir_path = '/data/yufeiw2/softagent_prvil_merge/'
-    # else:
-        # dir_path = config.REMOTE_DIR[args.host]
-    remote_data_dir = os.path.join(dir_path, 'data', 'local', args.folder)
-    command = """rsync -avzh --delete --progress {host}:{remote_data_dir} {local_dir} --include '*best_model.pth'  """.format(host=args.host,
+
+    remote_data_dir = os.path.join(dir_path, 'exp', args.env, args.exp_name)
+    command = """rsync -avzh --progress {host}:{remote_data_dir} {local_dir} --include '*best_model.pth'  """.format(host=args.host,
                                                                                                 remote_data_dir=remote_data_dir,
                                                                                                 local_dir=local_dir)
+    print(command)
+    import pdb; pdb.set_trace()
+                                                                                            
     if not args.img:
         command += """ --exclude '*.png' """
     if not args.gif:

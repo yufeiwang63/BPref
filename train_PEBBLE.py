@@ -20,6 +20,8 @@ from prompt import vqa_env_prompts, clip_env_prompts, sequence_clip_env_prompts
 import utils
 import hydra
 
+from vlms.blip_infer_2 import blip2_image_text_matching
+
 class Workspace(object):
     def __init__(self, cfg):
         self.work_dir = os.getcwd()
@@ -28,6 +30,7 @@ class Workspace(object):
         self.cfg = cfg
         self.cfg.prompt = vqa_env_prompts[cfg.env]
         self.cfg.clip_prompt = clip_env_prompts[cfg.env]
+        self.reward = self.cfg.reward # what types of reward to use
         self.logger = Logger(
             self.work_dir,
             save_tb=cfg.log_save_tb,
@@ -40,7 +43,8 @@ class Workspace(object):
         self.device = torch.device(cfg.device)
         self.log_success = False
         
-        os.system("cp /media/yufei/42b0d2d4-94e0-45f4-9930-4d8222ae63e51/yufei/projects/vlm-reward/BPref/prompt.py {}/".format(self.logger._log_dir))
+        current_file_path = os.path.dirname(os.path.realpath(__file__))
+        os.system("cp {}/prompt.py {}/".format(current_file_path, self.logger._log_dir))
         
         # make env
         if 'metaworld' in cfg.env:
@@ -122,6 +126,8 @@ class Workspace(object):
             os.makedirs(save_gif_dir)
 
         for episode in range(self.cfg.num_eval_episodes):
+            print("evaluating episode {}".format(episode))
+            # import pdb; pdb.set_trace()
             images = []
             obs = self.env.reset()
             if "metaworld" in self.cfg.env:
@@ -177,6 +183,7 @@ class Workspace(object):
             self.logger.log('train/true_episode_success', success_rate,
                         self.step)
         self.logger.dump(self.step)
+        # import pdb; pdb.set_trace()
     
     def learn_reward(self, first_flag=0):
                 
@@ -250,7 +257,9 @@ class Workspace(object):
                 # evaluate agent periodically
                 if self.step > 0 and self.step % self.cfg.eval_frequency == 0:
                     self.logger.log('eval/episode', episode, self.step)
+                    # import pdb; pdb.set_trace()
                     self.evaluate()
+                    # import pdb; pdb.set_trace()
                 
                 self.logger.log('train/episode_reward', episode_reward, self.step)
                 self.logger.log('train/true_episode_reward', true_episode_reward, self.step)
@@ -262,7 +271,8 @@ class Workspace(object):
                         self.step)
                     self.logger.log('train/true_episode_success', episode_success,
                         self.step)
-                
+
+                # import pdb; pdb.set_trace()
                 obs = self.env.reset()
                 if "metaworld" in self.cfg.env:
                     obs = obs[0]
@@ -290,26 +300,27 @@ class Workspace(object):
                 print("finished unsupervised exploration!!")
 
                 # update schedule
-                if self.cfg.reward_schedule == 1:
-                    frac = (self.cfg.num_train_steps-self.step) / self.cfg.num_train_steps
-                    if frac == 0:
-                        frac = 0.01
-                elif self.cfg.reward_schedule == 2:
-                    frac = self.cfg.num_train_steps / (self.cfg.num_train_steps-self.step +1)
-                else:
-                    frac = 1
-                self.reward_model.change_batch(frac)
-                
-                # update margin --> not necessary / will be updated soon
-                new_margin = np.mean(avg_train_true_return) * (self.cfg.segment / self.env._max_episode_steps)
-                self.reward_model.set_teacher_thres_skip(new_margin)
-                self.reward_model.set_teacher_thres_equal(new_margin)
-                
-                # first learn reward
-                reward_learning_acc, vlm_acc = self.learn_reward(first_flag=1)
-                
-                # relabel buffer
-                self.replay_buffer.relabel_with_predictor(self.reward_model)
+                if self.reward == 'learn_from_preference':
+                    if self.cfg.reward_schedule == 1:
+                        frac = (self.cfg.num_train_steps-self.step) / self.cfg.num_train_steps
+                        if frac == 0:
+                            frac = 0.01
+                    elif self.cfg.reward_schedule == 2:
+                        frac = self.cfg.num_train_steps / (self.cfg.num_train_steps-self.step +1)
+                    else:
+                        frac = 1
+                    self.reward_model.change_batch(frac)
+                    
+                    # update margin --> not necessary / will be updated soon
+                    new_margin = np.mean(avg_train_true_return) * (self.cfg.segment / self.env._max_episode_steps)
+                    self.reward_model.set_teacher_thres_skip(new_margin)
+                    self.reward_model.set_teacher_thres_equal(new_margin)
+                    
+                    # first learn reward
+                    reward_learning_acc, vlm_acc = self.learn_reward(first_flag=1)
+                    
+                    # relabel buffer
+                    self.replay_buffer.relabel_with_predictor(self.reward_model)
                 
                 # reset Q due to unsuperivsed exploration
                 self.agent.reset_critic()
@@ -328,7 +339,7 @@ class Workspace(object):
 
 
                 # update reward function
-                if self.total_feedback < self.cfg.max_feedback:
+                if self.total_feedback < self.cfg.max_feedback and self.reward == 'learn_from_preference':
                     if interact_count == self.cfg.num_interact:
                         # update schedule
                         if self.cfg.reward_schedule == 1:
@@ -364,9 +375,11 @@ class Workspace(object):
                                             gradient_update=1, K=self.cfg.topK)
                 
             next_obs, reward, terminated, truncated, extra = self.env.step(action)
-            if self.cfg.vlm_label:
+            if self.cfg.vlm_label or self.reward == 'image_text_matching':
                 if "metaworld" in self.cfg.env:
+                    # import pdb; pdb.set_trace()
                     rgb_image = self.env.render()
+                    # import pdb; pdb.set_trace()
                     rgb_image = rgb_image[::-1, :, :]
                     if "drawer" in self.cfg.env or "button" in self.cfg.env: #or "sweep" in self.cfg.env:
                         rgb_image = rgb_image[100:400, 100:400, :]
@@ -379,7 +392,14 @@ class Workspace(object):
                 rgb_image = None
 
             done = terminated or truncated
-            reward_hat = self.reward_model.r_hat(np.concatenate([obs, action], axis=-1))
+            if self.reward == 'learn_from_preference':
+                reward_hat = self.reward_model.r_hat(np.concatenate([obs, action], axis=-1))
+            elif self.reward == 'image_text_matching':
+                reward_hat = blip2_image_text_matching(rgb_image, clip_env_prompts[self.cfg.env])
+                if self.cfg.flip_vlm_label:
+                    reward_hat = 10 - reward_hat
+            else:
+                reward_hat = reward
 
             # allow infinite bootstrap
             done = float(done)
@@ -391,7 +411,8 @@ class Workspace(object):
                 episode_success = max(episode_success, extra['success'])
                 
             # adding data to the reward training data
-            self.reward_model.add_data(obs, action, reward, done, img=rgb_image)
+            if self.reward == 'learn_from_preference':
+                self.reward_model.add_data(obs, action, reward, done, img=rgb_image)
             self.replay_buffer.add(
                 obs, action, reward_hat, 
                 next_obs, done, done_no_max)

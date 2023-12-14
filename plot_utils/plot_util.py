@@ -68,6 +68,7 @@ def read_data(data_dirs, plot_key, filter_function=None, label_function=None, ma
 
             values = progress[key].values
             values = values[~np.isnan(values)]
+            # values = values[values != 0]
 
             if kernel_size > 0:
                 kernel = np.ones(kernel_size) / kernel_size

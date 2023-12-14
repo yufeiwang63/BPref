@@ -107,7 +107,7 @@ def to_slurm_command(params_list, header, python_command="python", remote_dir='~
             sing_commands = list()
             if compile_script is None or 'prepare' not in compile_script:
                 if mode == 'seuss':
-                    sing_commands.append('source ~/.bashrc && export PYTHONPATH=${PWD}:$PYTHONPATH && conda activate theseus')
+                    sing_commands.append('source ~/.bashrc && export PYTHONPATH=${PWD}:$PYTHONPATH && conda activate unisim')
                     # sing_commands.append('source ~/.bashrc && export PYTHONPATH=${PWD}:$PYTHONPATH')
                 else:
                     sing_commands.append('source ~/.bashrc && export PYTHONPATH=${PWD}:$PYTHONPATH')
